@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ── macOS App (.app in .dmg) ──
@@ -27,51 +27,33 @@ jobs:
             -scheme AnotherMe \
             -configuration Release \
             -derivedDataPath build \
-            -archivePath build/AnotherMe.xcarchive \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_ALLOWED=NO \
-            archive
-
-      - name: Export App
-        run: |
-          cd AnotherMe
-          # Create export options plist for unsigned export
-          cat > ExportOptions.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>mac-application</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>signingCertificate</key>
-            <string>-</string>
-          </dict>
-          </plist>
-          PLIST
-
-          # Try xcodebuild export, fall back to direct copy from archive
-          xcodebuild -exportArchive \
-            -archivePath build/AnotherMe.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist ExportOptions.plist 2>/dev/null || \
-          cp -R build/AnotherMe.xcarchive/Products/Applications/AnotherMe.app build/export/AnotherMe.app
+            build
 
       - name: Create DMG
         run: |
-          mkdir -p dist
-          # Create a simple DMG
+          APP_PATH="AnotherMe/build/Build/Products/Release/AnotherMe.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: AnotherMe.app not found at $APP_PATH"
+            echo "Searching for .app..."
+            APP_PATH=$(find AnotherMe/build -name "AnotherMe.app" -type d | head -1)
+            if [ -z "$APP_PATH" ]; then
+              echo "Error: AnotherMe.app not found anywhere"
+              exit 1
+            fi
+          fi
+          echo "Found app at: $APP_PATH"
           hdiutil create -volname "AnotherMe" \
-            -srcfolder AnotherMe/build/export/AnotherMe.app \
+            -srcfolder "$APP_PATH" \
             -ov -format UDZO \
-            dist/AnotherMe-${{ github.ref_name }}-macOS.dmg
+            "AnotherMe-${{ github.ref_name }}-macOS.dmg"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: dist/*.dmg
+          path: "*.dmg"
 
   # ── CLI (cross-platform binaries) ──
   release-cli:
@@ -82,20 +64,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+          cache: true
+          cache-dependency-path: anotherme-cli/go.sum
 
-      - name: Run tests
+      - name: Test
         run: cd anotherme-cli && go test ./...
 
       - name: Build CLI binaries
         run: |
           cd anotherme-cli
-          VERSION=${{ github.ref_name }}
+          VERSION="${{ github.ref_name }}"
           LDFLAGS="-s -w -X main.version=${VERSION}"
           mkdir -p dist
 
           GOOS=darwin  GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-darwin-arm64 .
           GOOS=darwin  GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-darwin-amd64 .
           GOOS=linux   GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-linux-amd64 .
+          GOOS=linux   GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-linux-arm64 .
           GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-windows-amd64.exe .
 
       - name: Create checksums
@@ -110,8 +95,11 @@ jobs:
           path: anotherme-cli/dist/*
 
   # ── Windows App (Wails build) ──
+  # NOTE: Currently optional — Windows app hasn't integrated Wails runtime yet.
+  #       This job will be enabled once wails.json and Wails imports are added.
   release-windows:
     runs-on: windows-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -121,10 +109,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.9.2
 
       - name: Install frontend dependencies
         run: |
@@ -139,9 +127,10 @@ jobs:
           CGO_ENABLED: 1
 
       - name: Package
+        shell: pwsh
         run: |
-          mkdir dist
-          copy anotherme-windows\build\bin\AnotherMe.exe dist\AnotherMe-${{ github.ref_name }}-windows-amd64.exe
+          New-Item -ItemType Directory -Force dist
+          Copy-Item "anotherme-windows\build\bin\AnotherMe.exe" "dist\AnotherMe-${{ github.ref_name }}-windows-amd64.exe"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -152,17 +141,36 @@ jobs:
   # ── Create GitHub Release ──
   publish:
     needs: [release-macos, release-cli, release-windows]
+    # Don't block on Windows since it's optional
+    if: always() && needs.release-macos.result == 'success' && needs.release-cli.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Download all artifacts
+      - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
+          name: macos-dmg
           path: release-assets
-          merge-multiple: true
 
-      - name: Create checksums
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-binaries
+          path: release-assets
+
+      - name: Download Windows artifact (optional)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: windows-exe
+          path: release-assets
+
+      - name: Generate checksums
         run: |
           cd release-assets
+          # Remove CLI-specific checksums (will regenerate unified one)
+          rm -f checksums-cli.txt
           sha256sum * > checksums.txt
 
       - name: Create Release

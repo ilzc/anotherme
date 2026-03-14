@@ -30,31 +30,33 @@ jobs:
             build
 
   # ── CLI ──
-  cli-build:
+  cli:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+          cache: true
+          cache-dependency-path: anotherme-cli/go.sum
+      - name: Vet
+        run: cd anotherme-cli && go vet ./...
       - name: Build
         run: cd anotherme-cli && go build ./...
       - name: Test
         run: cd anotherme-cli && go test ./...
-      - name: Vet
-        run: cd anotherme-cli && go vet ./...
 
-  # ── Windows App (Go backend only, cross-compile check) ──
-  windows-build:
+  # ── Windows App (Go backend compile check) ──
+  windows-backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-      - name: Check Go backend compiles
+          cache: true
+          cache-dependency-path: anotherme-windows/go.sum
+      - name: Verify Go backend compiles
         run: |
           cd anotherme-windows
-          # Verify Go code compiles (excluding Windows-specific syscall code)
-          GOOS=linux go vet ./internal/analysis/... ./internal/capture/... 2>/dev/null || true
-          echo "Go backend structure verified"
+          GOOS=windows go vet ./...
