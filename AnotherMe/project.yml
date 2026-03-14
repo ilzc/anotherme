@@ -1,0 +1,35 @@
+name: AnotherMe
+options:
+  bundleIdPrefix: com.anotherme
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  AnotherMe:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+      - path: Core
+      - path: Features
+      - path: UI
+      - path: Resources
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.anotherme.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: NO
+        PRODUCT_NAME: AnotherMe
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        COMBINE_HIDPI_IMAGES: YES
+    entitlements:
+      path: Resources/AnotherMe.entitlements
+      properties: {}

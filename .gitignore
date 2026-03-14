@@ -1,0 +1,87 @@
+# ── macOS ──
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Xcode ──
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.app
+build/
+.build/
+
+# ── Swift Package Manager ──
+.swiftpm/xcode/xcuserdata/
+Package.resolved
+
+# ── CocoaPods ──
+Pods/
+
+# ── Go ──
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ── Node.js ──
+node_modules/
+dist/
+.vite/
+*.local
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Environment & Secrets ──
+.env
+.env.*
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.provisionprofile
+config.yaml
+credentials.json
+
+# ── Database ──
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# ── Archives & Binaries ──
+*.zip
+*.tar.gz
+*.dmg
+*.pkg
+
+# ── Logs ──
+*.log
+
+# ── Dev docs (internal design documents) ──
+docs/
+
+# ── Claude workspace (local settings) ──
+.claude/
+
+# ── OS generated ──
+Thumbs.db
+ehthumbs.db
+Desktop.ini

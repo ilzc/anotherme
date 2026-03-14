@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── macOS App (.app in .dmg) ──
+  release-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Build macOS App
+        run: |
+          cd AnotherMe
+          xcodebuild -project AnotherMe.xcodeproj \
+            -scheme AnotherMe \
+            -configuration Release \
+            -derivedDataPath build \
+            -archivePath build/AnotherMe.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Export App
+        run: |
+          cd AnotherMe
+          # Create export options plist for unsigned export
+          cat > ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>mac-application</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>-</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # Try xcodebuild export, fall back to direct copy from archive
+          xcodebuild -exportArchive \
+            -archivePath build/AnotherMe.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist 2>/dev/null || \
+          cp -R build/AnotherMe.xcarchive/Products/Applications/AnotherMe.app build/export/AnotherMe.app
+
+      - name: Create DMG
+        run: |
+          mkdir -p dist
+          # Create a simple DMG
+          hdiutil create -volname "AnotherMe" \
+            -srcfolder AnotherMe/build/export/AnotherMe.app \
+            -ov -format UDZO \
+            dist/AnotherMe-${{ github.ref_name }}-macOS.dmg
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+
+  # ── CLI (cross-platform binaries) ──
+  release-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run tests
+        run: cd anotherme-cli && go test ./...
+
+      - name: Build CLI binaries
+        run: |
+          cd anotherme-cli
+          VERSION=${{ github.ref_name }}
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          mkdir -p dist
+
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-darwin-arm64 .
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-darwin-amd64 .
+          GOOS=linux   GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-linux-amd64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/anotherme-cli-windows-amd64.exe .
+
+      - name: Create checksums
+        run: |
+          cd anotherme-cli/dist
+          sha256sum * > checksums-cli.txt
+
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries
+          path: anotherme-cli/dist/*
+
+  # ── Windows App (Wails build) ──
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install frontend dependencies
+        run: |
+          cd anotherme-windows/frontend
+          npm ci
+
+      - name: Build Windows App
+        run: |
+          cd anotherme-windows
+          wails build -clean -o AnotherMe.exe
+        env:
+          CGO_ENABLED: 1
+
+      - name: Package
+        run: |
+          mkdir dist
+          copy anotherme-windows\build\bin\AnotherMe.exe dist\AnotherMe-${{ github.ref_name }}-windows-amd64.exe
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/*
+
+  # ── Create GitHub Release ──
+  publish:
+    needs: [release-macos, release-cli, release-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
