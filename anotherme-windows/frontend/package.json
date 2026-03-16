@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
+    "dev:demo": "VITE_DEMO=true vite",
     "build": "vite build"
   },
   "dependencies": {

@@ -11,5 +11,9 @@ export default defineConfig({
   },
   server: {
     port: 5173
+  },
+  build: {
+    // Support top-level await in api/index.js
+    target: 'esnext'
   }
 })
