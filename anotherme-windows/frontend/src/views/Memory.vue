@@ -61,7 +61,7 @@ onMounted(loadMemories)
 </script>
 
 <template>
-  <div class="p-6 max-w-5xl">
+  <div class="p-6">
     <h2 class="text-2xl font-bold text-white mb-6">Memory Bank</h2>
 
     <!-- Search & Filters -->
@@ -80,9 +80,9 @@ onMounted(loadMemories)
         />
       </div>
 
-      <div class="flex items-center justify-between">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <!-- Category Chips -->
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             v-for="cat in categories"
             :key="cat.value"
@@ -137,7 +137,7 @@ onMounted(loadMemories)
 
     <!-- Memory Grid -->
     <template v-else>
-      <div v-if="memories.length" class="grid grid-cols-2 gap-4">
+      <div v-if="memories.length" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <MemoryCard
           v-for="mem in memories"
           :key="mem.id"

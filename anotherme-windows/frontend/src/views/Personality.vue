@@ -35,7 +35,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="p-6 max-w-5xl">
+  <div class="p-6">
     <h2 class="text-2xl font-bold text-white mb-6">Personality Profile</h2>
 
     <!-- Loading -->
@@ -51,7 +51,7 @@ onMounted(async () => {
 
     <template v-else-if="hasData">
       <!-- Layer Tabs -->
-      <div class="flex gap-1 mb-6 bg-surface-800 p-1 rounded-lg border border-gray-700 w-fit">
+      <div class="flex flex-wrap gap-1 mb-6 bg-surface-800 p-1 rounded-lg border border-gray-700 w-fit">
         <button
           v-for="tab in layerTabs"
           :key="tab.num"
@@ -69,7 +69,7 @@ onMounted(async () => {
       </div>
 
       <!-- Traits Grid -->
-      <div class="grid grid-cols-2 gap-4 mb-8">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
         <TraitCard
           v-for="trait in currentTraits"
           :key="trait.dimension"

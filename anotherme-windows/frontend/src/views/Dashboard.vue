@@ -45,7 +45,7 @@ onMounted(loadData)
 </script>
 
 <template>
-  <div class="p-6 max-w-5xl">
+  <div class="p-6">
     <h2 class="text-2xl font-bold text-white mb-6">Dashboard</h2>
 
     <!-- Error -->
@@ -66,7 +66,7 @@ onMounted(loadData)
 
     <template v-else-if="stats">
       <!-- Stats Cards -->
-      <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Total Activities"
           :value="stats.totalActivities"
@@ -119,7 +119,7 @@ onMounted(loadData)
       </div>
 
       <!-- Main Content Grid -->
-      <div class="grid grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Activity Timeline -->
         <div class="col-span-2">
           <h3 class="text-lg font-semibold text-white mb-4">Today's Activities</h3>

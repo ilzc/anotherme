@@ -174,7 +174,7 @@ onMounted(loadSettings)
 </script>
 
 <template>
-  <div class="p-6 max-w-3xl">
+  <div class="p-6 max-w-4xl">
     <h2 class="text-2xl font-bold text-white mb-6">Settings</h2>
 
     <!-- Notifications -->
@@ -230,7 +230,7 @@ onMounted(loadSettings)
           </h3>
 
           <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm text-gray-400 mb-1">Provider</label>
                 <input v-model="providerName" class="input-field" placeholder="e.g. OpenAI" />
@@ -430,7 +430,7 @@ onMounted(loadSettings)
             </div>
 
             <!-- Stats -->
-            <div v-if="dataStats" class="grid grid-cols-2 gap-3 pt-2">
+            <div v-if="dataStats" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
               <div class="bg-surface-900 rounded-lg p-3">
                 <p class="text-xs text-gray-500">Database Path</p>
                 <p class="text-sm text-gray-300 truncate mt-0.5">{{ dataStats.dbPath }}</p>

@@ -56,7 +56,7 @@ onMounted(async () => {
 <template>
   <div class="flex h-full">
     <!-- Session List Panel -->
-    <div class="w-[280px] border-r border-gray-700 flex flex-col bg-surface-800/50">
+    <div class="w-[240px] xl:w-[280px] shrink-0 border-r border-gray-700 flex flex-col bg-surface-800/50">
       <div class="p-4 border-b border-gray-700">
         <button @click="chatStore.createSession()" class="btn-primary w-full flex items-center justify-center gap-2">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
