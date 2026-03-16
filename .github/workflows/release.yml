@@ -17,8 +17,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.3.app
+      - name: Select Xcode (Swift 6.1+)
+        run: |
+          echo "Available Xcode versions:"
+          ls -d /Applications/Xcode*.app || true
+          # Pick the highest 16.x Xcode available (need >= 16.3 for Swift 6.1)
+          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "Error: No Xcode 16.x found"
+            exit 1
+          fi
+          echo "Selected: $XCODE"
+          sudo xcode-select -s "$XCODE"
+          swift --version
 
       - name: Build macOS App
         run: |
