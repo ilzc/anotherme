@@ -17,6 +17,7 @@ import (
 	"github.com/user/anotherme-windows/internal/analysis"
 	"github.com/user/anotherme-windows/internal/capture"
 	"github.com/user/anotherme-windows/internal/monitor"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App is the main application struct bound to the Wails frontend.
@@ -447,15 +448,12 @@ func (a *App) SendChatMessageStream(sessionID, text string) (*ChatStreamResult, 
 
 	callback := func(chunk string) {
 		accumulated.WriteString(chunk)
-
-		// TODO: When Wails runtime context is available, emit events for real-time streaming:
-		// runtime.EventsEmit(a.ctx, "chat:chunk", chunk)
+		wailsRuntime.EventsEmit(a.ctx, "chat:chunk", chunk)
 	}
 
 	err := a.agentService.SendMessageStream(ctx, a.chatClient, a.routerClient, text, sessionID, callback)
 	if err != nil {
-		// TODO: When Wails runtime context is available, emit error event:
-		// runtime.EventsEmit(a.ctx, "chat:error", err.Error())
+		wailsRuntime.EventsEmit(a.ctx, "chat:error", err.Error())
 		return nil, fmt.Errorf("stream message: %w", err)
 	}
 
@@ -467,14 +465,14 @@ func (a *App) SendChatMessageStream(sessionID, text string) (*ChatStreamResult, 
 		messageID = lastMsg.ID
 	}
 
-	// TODO: When Wails runtime context is available, emit completion event:
-	// runtime.EventsEmit(a.ctx, "chat:done", result)
-
-	return &ChatStreamResult{
+	result := &ChatStreamResult{
 		SessionID: sessionID,
 		MessageID: messageID,
 		Content:   accumulated.String(),
-	}, nil
+	}
+	wailsRuntime.EventsEmit(a.ctx, "chat:done", result)
+
+	return result, nil
 }
 
 // ─── Personality ────────────────────────────────────────────────────────────
