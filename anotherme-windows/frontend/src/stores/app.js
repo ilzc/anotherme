@@ -40,7 +40,7 @@ export const useAppStore = defineStore('app', () => {
       const api = (await import('../api/index.js')).default
       const status = await api.GetCaptureStatus()
       captureRunning.value = status.running
-      captureCount.value = status.count
+      captureCount.value = status.captureCount
     } catch (e) {
       error.value = 'Failed to get capture status: ' + e.message
     }

@@ -31,22 +31,22 @@ func FormatGRDBDate(t time.Time) string {
 
 // ActivityRecord corresponds to the activity_logs table in activity.sqlite.
 type ActivityRecord struct {
-	ID               string
-	Timestamp        time.Time
-	AppName          string
-	WindowTitle      string
-	ExtractedText    *string
-	ContentSummary   *string
-	UserIntent       *string
-	ActivityCategory string
-	Topics           []string // JSON array in DB
-	ScreenIndex      int
-	CaptureMode      string
-	Analyzed         bool
-	VisibleApps      []string // JSON array, nullable
-	UserAuthored     *string
-	UserExpressions  []string // JSON array, nullable
-	EngagementLevel  *string
+	ID               string    `json:"id"`
+	Timestamp        time.Time `json:"timestamp"`
+	AppName          string    `json:"appName"`
+	WindowTitle      string    `json:"windowTitle"`
+	ExtractedText    *string   `json:"extractedText,omitempty"`
+	ContentSummary   *string   `json:"contentSummary,omitempty"`
+	UserIntent       *string   `json:"userIntent,omitempty"`
+	ActivityCategory string    `json:"activityCategory"`
+	Topics           []string  `json:"topics"`
+	ScreenIndex      int       `json:"screenIndex"`
+	CaptureMode      string    `json:"captureMode"`
+	Analyzed         bool      `json:"analyzed"`
+	VisibleApps      []string  `json:"visibleApps"`
+	UserAuthored     *string   `json:"userAuthored,omitempty"`
+	UserExpressions  []string  `json:"userExpressions"`
+	EngagementLevel  *string   `json:"engagementLevel,omitempty"`
 }
 
 // Trait represents a personality trait from any layer (1-5).
@@ -57,67 +57,67 @@ type ActivityRecord struct {
 //	Layer 4: expression_traits (in layer4.sqlite)
 //	Layer 5: value_traits     (in layer5.sqlite) – has Description
 type Trait struct {
-	ID            string
-	Dimension     string
-	Value         string
-	Description   *string    // Only L3, L5
-	Confidence    float64
-	EvidenceCount *int       // L1, L3, L5
-	FirstObserved *time.Time // L1, L3, L5
-	LastUpdated   time.Time
-	Version       int
-	Layer         int // Set by code, not stored in DB
+	ID            string     `json:"id"`
+	Dimension     string     `json:"dimension"`
+	Value         string     `json:"value"`
+	Description   *string    `json:"description,omitempty"`
+	Confidence    float64    `json:"confidence"`
+	EvidenceCount *int       `json:"evidenceCount,omitempty"`
+	FirstObserved *time.Time `json:"firstObserved,omitempty"`
+	LastUpdated   time.Time  `json:"lastUpdated"`
+	Version       int        `json:"version"`
+	Layer         int        `json:"layer"`
 }
 
 // Memory corresponds to the memories table in memory.sqlite.
 type Memory struct {
-	ID             string
-	Content        string
-	Category       string
-	Keywords       []string // JSON array in DB
-	Importance     float64
-	AccessCount    int
-	Pinned         bool
-	SourceType     string
-	SourceID       *string
-	CreatedAt      time.Time
-	LastAccessedAt time.Time
+	ID             string    `json:"id"`
+	Content        string    `json:"content"`
+	Category       string    `json:"category"`
+	Keywords       []string  `json:"keywords"`
+	Importance     float64   `json:"importance"`
+	AccessCount    int       `json:"accessCount"`
+	Pinned         bool      `json:"isPinned"`
+	SourceType     string    `json:"sourceType"`
+	SourceID       *string   `json:"sourceId,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	LastAccessedAt time.Time `json:"updatedAt"`
 }
 
 // ChatSession corresponds to the chat_sessions table in chat.sqlite.
 type ChatSession struct {
-	ID        string
-	CreatedAt time.Time
-	Title     string
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	Title     string    `json:"title"`
 }
 
 // ChatMessage corresponds to the chat_messages table in chat.sqlite.
 type ChatMessage struct {
-	ID               string
-	SessionID        string
-	Timestamp        time.Time
-	Role             string
-	Content          string
-	ReferencedLayers []int             // JSON array in DB
-	ReferencedData   map[string]string // JSON object in DB
+	ID               string            `json:"id"`
+	SessionID        string            `json:"sessionId"`
+	Timestamp        time.Time         `json:"timestamp"`
+	Role             string            `json:"role"`
+	Content          string            `json:"content"`
+	ReferencedLayers []int             `json:"referencedLayers,omitempty"`
+	ReferencedData   map[string]string `json:"referencedData,omitempty"`
 }
 
 // Insight corresponds to the insights table in insights.sqlite.
 type Insight struct {
-	ID            string
-	CreatedAt     time.Time
-	Type          string
-	Title         string
-	Content       string
-	RelatedLayers []int // JSON array in DB
-	Notified      bool
+	ID            string    `json:"id"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Type          string    `json:"type"`
+	Title         string    `json:"title"`
+	Content       string    `json:"content"`
+	RelatedLayers []int     `json:"relatedLayers,omitempty"`
+	Notified      bool      `json:"notified"`
 }
 
 // PersonalitySnapshot corresponds to the personality_snapshots table in snapshots.sqlite.
 type PersonalitySnapshot struct {
-	ID           string
-	SnapshotDate time.Time
-	FullProfile  string  // JSON string
-	SummaryText  *string
-	Trigger      string
+	ID           string    `json:"id"`
+	SnapshotDate time.Time `json:"generatedAt"`
+	FullProfile  string    `json:"fullProfile"`
+	SummaryText  *string   `json:"summary,omitempty"`
+	Trigger      string    `json:"trigger"`
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,10 @@ type App struct {
 	analysisPipeline *analysis.Pipeline
 	modelingEngine   *analysis.ModelingEngine
 	consolidator     *analysis.MemoryConsolidator
+
+	// Monitors (need references for start/stop)
+	inputMon    *monitor.InputMonitor
+	screenState *monitor.ScreenStateMonitor
 }
 
 // NewApp creates a new App instance.
@@ -94,6 +100,14 @@ func (a *App) shutdown(ctx context.Context) {
 		a.consolidator.Stop()
 	}
 
+	// Stop monitors.
+	if a.screenState != nil {
+		a.screenState.Stop()
+	}
+	if a.inputMon != nil {
+		a.inputMon.Stop()
+	}
+
 	a.captureMu.Lock()
 	a.captureStatus.Running = false
 	a.captureMu.Unlock()
@@ -140,11 +154,19 @@ func (a *App) initCaptureAndAnalysis() {
 	capturer := capture.NewCapturer()
 	dedup := capture.NewDeduplicator()
 	windowTracker := monitor.NewWindowTracker()
-	inputMon := monitor.NewInputMonitor()
-	screenState := monitor.NewScreenStateMonitor(inputMon)
+	a.inputMon = monitor.NewInputMonitor()
+	a.screenState = monitor.NewScreenStateMonitor(a.inputMon)
 	securityFilter := monitor.NewSecurityFilter()
 
-	a.captureService = capture.NewService(capturer, dedup, windowTracker, screenState, securityFilter)
+	// Start monitors so screen state detection works.
+	if err := a.inputMon.Start(); err != nil {
+		log.Printf("[App] Failed to start input monitor: %v", err)
+	}
+	if err := a.screenState.Start(); err != nil {
+		log.Printf("[App] Failed to start screen state monitor: %v", err)
+	}
+
+	a.captureService = capture.NewService(capturer, dedup, windowTracker, a.screenState, securityFilter)
 
 	// --- Analysis pipeline ---
 	// Use the screenshot_analysis provider if configured, otherwise fall back to chat provider.
@@ -230,9 +252,9 @@ func (a *App) GetDashboardStats() (*DashboardStats, error) {
 		}
 		// Today's activities
 		today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Now().Location())
-		activities, err := db.FetchActivities(actDB, today, 10000)
-		if err == nil {
-			stats.TodayActivities = len(activities)
+		var todayCount int
+		if err := actDB.QueryRow("SELECT COUNT(*) FROM activity_logs WHERE timestamp >= ?", db.FormatGRDBDate(today)).Scan(&todayCount); err == nil {
+			stats.TodayActivities = todayCount
 		}
 		// Latest capture
 		latest, err := db.LatestActivity(actDB)
@@ -270,9 +292,9 @@ func (a *App) GetDashboardStats() (*DashboardStats, error) {
 
 	// Count chat sessions
 	if chatDB := a.dbMgr.ChatDB(); chatDB != nil {
-		sessions, err := db.FetchRecentSessions(chatDB, 10000)
-		if err == nil {
-			stats.TotalChatSessions = len(sessions)
+		var count int
+		if err := chatDB.QueryRow("SELECT COUNT(*) FROM chat_sessions").Scan(&count); err == nil {
+			stats.TotalChatSessions = count
 		}
 	}
 
@@ -441,7 +463,7 @@ func (a *App) SendChatMessageStream(sessionID, text string) (*ChatStreamResult, 
 		return nil, fmt.Errorf("AI clients not configured")
 	}
 
-	ctx := context.Background()
+	ctx := a.ctx
 
 	// Accumulate the full response from streaming chunks
 	var accumulated strings.Builder
@@ -596,6 +618,29 @@ func (a *App) SaveConfig(cfg *config.Config) error {
 		a.consolidator.SetLanguage(lang)
 	}
 
+	// Reinitialize capture and analysis to pick up new provider settings.
+	a.captureMu.Lock()
+	wasRunning := a.captureStatus.Running
+	a.captureMu.Unlock()
+
+	if wasRunning {
+		a.StopCapture()
+	}
+
+	// Stop old monitors before reinit.
+	if a.screenState != nil {
+		a.screenState.Stop()
+	}
+	if a.inputMon != nil {
+		a.inputMon.Stop()
+	}
+
+	a.initCaptureAndAnalysis()
+
+	if wasRunning {
+		_ = a.StartCapture()
+	}
+
 	return nil
 }
 
@@ -657,12 +702,12 @@ func exportTraitsMinimal(allTraits map[int][]db.Trait) string {
 		for _, t := range traits {
 			traitStrs = append(traitStrs, fmt.Sprintf("%s=%s", t.Dimension, t.Value))
 		}
-		parts = append(parts, fmt.Sprintf("%s: %s", layerNames[i-1], joinStrings(traitStrs, ", ")))
+		parts = append(parts, fmt.Sprintf("%s: %s", layerNames[i-1], strings.Join(traitStrs, ", ")))
 	}
 	if len(parts) == 0 {
 		return "No personality data available."
 	}
-	return "Personality Profile: " + joinStrings(parts, ". ") + "."
+	return "Personality Profile: " + strings.Join(parts, ". ") + "."
 }
 
 func exportTraitsCard(allTraits map[int][]db.Trait) string {
@@ -728,13 +773,262 @@ func exportTraitsJSON(allTraits map[int][]db.Trait) (string, error) {
 	return string(data), nil
 }
 
-func joinStrings(parts []string, sep string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += sep
-		}
-		result += p
+// ─── Frontend API wrappers ──────────────────────────────────────────────────
+// These methods match the names expected by the Vue frontend (mock.js).
+// Wails binds Go methods by name, so the frontend calls must match exactly.
+
+// GetChatMessages returns all messages in a chat session.
+// Frontend calls this instead of GetSessionMessages.
+func (a *App) GetChatMessages(sessionID string) ([]db.ChatMessage, error) {
+	return a.GetSessionMessages(sessionID)
+}
+
+// GetAllPersonalityLayers returns traits from all 5 personality layers.
+func (a *App) GetAllPersonalityLayers() (map[int][]db.Trait, error) {
+	return a.GetAllLayerTraits()
+}
+
+// GetPersonalityLayer returns traits for a specific personality layer (1-5).
+func (a *App) GetPersonalityLayer(layer int) ([]db.Trait, error) {
+	return a.GetLayerTraits(layer)
+}
+
+// GetPersonalitySnapshot returns the most recent personality snapshot.
+func (a *App) GetPersonalitySnapshot() (*db.PersonalitySnapshot, error) {
+	return a.GetLatestSnapshot()
+}
+
+// SettingsData is the frontend-friendly settings format.
+type SettingsData struct {
+	Language  string          `json:"language"`
+	AI        SettingsAI      `json:"ai"`
+	Capture   SettingsCapture `json:"capture"`
+	Blacklist []string        `json:"blacklist"`
+}
+
+// SettingsAI holds AI provider settings for the frontend.
+type SettingsAI struct {
+	ProviderName string `json:"providerName"`
+	Endpoint     string `json:"endpoint"`
+	APIKey       string `json:"apiKey"`
+	ModelName    string `json:"modelName"`
+}
+
+// SettingsCapture holds capture settings for the frontend.
+type SettingsCapture struct {
+	Mode            string `json:"mode"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	DailyLimit      int    `json:"dailyLimit"`
+}
+
+// GetSettings returns settings in the format expected by the frontend.
+func (a *App) GetSettings() (*SettingsData, error) {
+	if a.cfg == nil {
+		return nil, fmt.Errorf("configuration not loaded")
 	}
-	return result
+
+	data := &SettingsData{
+		Language:  a.cfg.Language,
+		Blacklist: []string{},
+		Capture: SettingsCapture{
+			Mode:            "smart",
+			IntervalSeconds: 300,
+			DailyLimit:      200,
+		},
+	}
+
+	// Extract first provider info
+	if len(a.cfg.Providers) > 0 {
+		p := a.cfg.Providers[0]
+		data.AI = SettingsAI{
+			ProviderName: p.Name,
+			Endpoint:     p.Endpoint,
+			APIKey:       p.APIKey,
+			ModelName:    p.Model,
+		}
+	}
+
+	return data, nil
+}
+
+// SaveSettings saves settings from the frontend format.
+func (a *App) SaveSettings(data *SettingsData) error {
+	if a.cfg == nil {
+		return fmt.Errorf("configuration not loaded")
+	}
+
+	// Update language
+	a.cfg.Language = data.Language
+
+	// Update or create provider
+	if len(a.cfg.Providers) == 0 {
+		a.cfg.Providers = []config.Provider{{}}
+	}
+	a.cfg.Providers[0].Name = data.AI.ProviderName
+	a.cfg.Providers[0].Endpoint = data.AI.Endpoint
+	a.cfg.Providers[0].APIKey = data.AI.APIKey
+	a.cfg.Providers[0].Model = data.AI.ModelName
+
+	return a.SaveConfig(a.cfg)
+}
+
+// DataStats holds database statistics for the frontend.
+type DataStats struct {
+	DBPath           string `json:"dbPath"`
+	DBSize           string `json:"dbSize"`
+	ActivitiesCount  int    `json:"activitiesCount"`
+	MemoriesCount    int    `json:"memoriesCount"`
+	PersonalityVer   int    `json:"personalityVersion"`
+	OldestRecord     string `json:"oldestRecord"`
+}
+
+// GetDataStats returns database statistics.
+func (a *App) GetDataStats() (*DataStats, error) {
+	if a.dbMgr == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	stats := &DataStats{
+		DBPath: a.dbMgr.DBPath(),
+	}
+
+	// Calculate total DB size
+	var totalSize int64
+	entries, err := os.ReadDir(a.dbMgr.DBPath())
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".sqlite") {
+				info, err := e.Info()
+				if err == nil {
+					totalSize += info.Size()
+				}
+			}
+		}
+	}
+	if totalSize > 1024*1024 {
+		stats.DBSize = fmt.Sprintf("%.1f MB", float64(totalSize)/(1024*1024))
+	} else {
+		stats.DBSize = fmt.Sprintf("%.1f KB", float64(totalSize)/1024)
+	}
+
+	// Count activities
+	if actDB := a.dbMgr.ActivityDB(); actDB != nil {
+		count, err := db.CountActivities(actDB)
+		if err == nil {
+			stats.ActivitiesCount = count
+		}
+	}
+
+	// Count memories
+	if memDB := a.dbMgr.MemoryDB(); memDB != nil {
+		count, err := db.CountMemories(memDB)
+		if err == nil {
+			stats.MemoriesCount = count
+		}
+	}
+
+	// Count personality snapshots as version
+	if snapshotDB := a.dbMgr.SnapshotDB(); snapshotDB != nil {
+		var count int
+		if err := snapshotDB.QueryRow("SELECT COUNT(*) FROM personality_snapshots").Scan(&count); err == nil {
+			stats.PersonalityVer = count
+		}
+	}
+
+	return stats, nil
+}
+
+// MemoryListOptions holds query options for the memory list.
+type MemoryListOptions struct {
+	Keyword  string `json:"keyword"`
+	Category string `json:"category"`
+	SortBy   string `json:"sortBy"`
+}
+
+// GetMemories returns memories filtered by the given options.
+func (a *App) GetMemories(options MemoryListOptions) ([]db.Memory, error) {
+	if a.dbMgr == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	memDB := a.dbMgr.MemoryDB()
+	if memDB == nil {
+		return nil, fmt.Errorf("memory database not available")
+	}
+
+	var memories []db.Memory
+	var err error
+
+	if options.Keyword != "" {
+		memories, err = db.SearchMemories(memDB, options.Keyword, 500)
+	} else {
+		memories, err = db.FetchRecentMemories(memDB, 500)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter by category
+	if options.Category != "" && options.Category != "all" {
+		filtered := make([]db.Memory, 0, len(memories))
+		for _, m := range memories {
+			if m.Category == options.Category {
+				filtered = append(filtered, m)
+			}
+		}
+		memories = filtered
+	}
+
+	// Sort
+	switch options.SortBy {
+	case "importance":
+		sort.Slice(memories, func(i, j int) bool {
+			return memories[i].Importance > memories[j].Importance
+		})
+	case "recency":
+		sort.Slice(memories, func(i, j int) bool {
+			return memories[i].LastAccessedAt.After(memories[j].LastAccessedAt)
+		})
+	default: // "date" or empty
+		sort.Slice(memories, func(i, j int) bool {
+			return memories[i].CreatedAt.After(memories[j].CreatedAt)
+		})
+	}
+
+	// Cap at 100
+	if len(memories) > 100 {
+		memories = memories[:100]
+	}
+
+	return memories, nil
+}
+
+// MemoryStats holds memory statistics for the frontend.
+type MemoryStats struct {
+	Total  int `json:"total"`
+	Pinned int `json:"pinned"`
+}
+
+// GetMemoryStats returns memory statistics.
+func (a *App) GetMemoryStats() (*MemoryStats, error) {
+	if a.dbMgr == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	memDB := a.dbMgr.MemoryDB()
+	if memDB == nil {
+		return nil, fmt.Errorf("memory database not available")
+	}
+
+	stats := &MemoryStats{}
+	count, err := db.CountMemories(memDB)
+	if err == nil {
+		stats.Total = count
+	}
+
+	// Count pinned memories
+	var pinned int
+	if err := memDB.QueryRow("SELECT COUNT(*) FROM memories WHERE pinned = 1").Scan(&pinned); err == nil {
+		stats.Pinned = pinned
+	}
+
+	return stats, nil
 }

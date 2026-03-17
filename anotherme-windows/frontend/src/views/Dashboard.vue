@@ -155,9 +155,9 @@ onMounted(loadData)
                   {{ trait }}
                 </span>
               </div>
-              <p v-if="snapshot?.version" class="text-xs text-gray-500">
-                Version {{ snapshot.version }} &middot;
-                Generated {{ snapshot.generatedAt ? new Date(snapshot.generatedAt).toLocaleDateString('en-US') : '' }}
+              <p class="text-xs text-gray-500">
+                <template v-if="snapshot?.version">Version {{ snapshot.version }} &middot; </template>
+                <template v-if="snapshot?.generatedAt">Generated {{ new Date(snapshot.generatedAt).toLocaleDateString('en-US') }}</template>
               </p>
             </template>
             <div v-else class="text-center py-4">

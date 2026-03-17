@@ -61,6 +61,7 @@ type Pipeline struct {
 	running    bool
 	stopCh     chan struct{}
 	mu         sync.Mutex
+	wg         sync.WaitGroup
 
 	// Vision request fields (bypass ai.Client for multimodal)
 	endpoint string
@@ -129,19 +130,23 @@ func (p *Pipeline) Start() {
 	p.running = true
 	p.stopCh = make(chan struct{})
 
+	p.wg.Add(1)
 	go p.processLoop()
 }
 
 // Stop halts the pipeline processing goroutine and closes owned DB connections.
 func (p *Pipeline) Stop() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if !p.running {
+		p.mu.Unlock()
 		return
 	}
 	close(p.stopCh)
 	p.running = false
+	p.mu.Unlock()
+
+	// Wait for goroutine to finish before closing DBs.
+	p.wg.Wait()
 
 	if p.ownDBs {
 		if p.activityDB != nil {
@@ -194,12 +199,14 @@ func (p *Pipeline) ErrorCount() int {
 }
 
 func (p *Pipeline) processLoop() {
+	defer p.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[Pipeline] Recovered from panic: %v", r)
 			// Restart the loop after recovery.
 			p.mu.Lock()
 			if p.running {
+				p.wg.Add(1)
 				go p.processLoop()
 			}
 			p.mu.Unlock()

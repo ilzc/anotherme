@@ -79,7 +79,7 @@ onMounted(async () => {
           ]"
         >
           <p class="text-sm font-medium text-white truncate">{{ session.title }}</p>
-          <p class="text-xs text-gray-500 mt-1">{{ formatDate(session.lastMessageAt) }}</p>
+          <p class="text-xs text-gray-500 mt-1">{{ formatDate(session.lastMessageAt || session.createdAt) }}</p>
         </button>
 
         <div v-if="!chatStore.sessions.length" class="p-6 text-center text-gray-500 text-sm">

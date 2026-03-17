@@ -54,8 +54,7 @@ const captureModes = [
 const exportFormats = [
   { value: 'minimal', label: 'Minimal Text' },
   { value: 'card', label: 'Card Format' },
-  { value: 'json', label: 'JSON' },
-  { value: 'archive', label: 'Full Archive' }
+  { value: 'json', label: 'JSON' }
 ]
 
 function formatInterval(seconds) {
@@ -125,7 +124,8 @@ async function testConnection() {
   connectionResult.value = null
   try {
     const api = (await import('../api/index.js')).default
-    connectionResult.value = await api.TestAIConnection(endpoint.value, apiKey.value, modelName.value)
+    await api.TestAIConnection(endpoint.value, apiKey.value, modelName.value)
+    connectionResult.value = { success: true, message: 'Connection successful' }
   } catch (e) {
     connectionResult.value = { success: false, message: e.message }
   } finally {
@@ -159,10 +159,16 @@ async function exportPersonality() {
   try {
     const api = (await import('../api/index.js')).default
     const result = await api.ExportPersonality(exportFormat.value)
-    if (result.success) {
+    // result is a plain string (the exported content) in real mode,
+    // or an object {success, message} in mock mode.
+    if (typeof result === 'string') {
+      // Copy to clipboard
+      await navigator.clipboard.writeText(result)
+      successMsg.value = 'Exported and copied to clipboard'
+    } else if (result?.success) {
       successMsg.value = result.message
-      setTimeout(() => { successMsg.value = null }, 5000)
     }
+    setTimeout(() => { successMsg.value = null }, 5000)
   } catch (e) {
     error.value = 'Export failed: ' + e.message
   } finally {

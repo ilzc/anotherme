@@ -12,7 +12,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function fetchSessions() {
     try {
-      sessions.value = await api.GetChatSessions()
+      sessions.value = await api.GetChatSessions(100)
       error.value = null
     } catch (e) {
       console.error('Failed to fetch sessions:', e)

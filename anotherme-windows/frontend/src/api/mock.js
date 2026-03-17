@@ -111,7 +111,7 @@ let _messages = {
 let _nextSessionId = 4
 let _nextMsgId = 9
 
-export async function GetChatSessions() {
+export async function GetChatSessions(limit) {
   await delay(200)
   return [..._sessions]
 }

@@ -31,6 +31,7 @@ type ModelingEngine struct {
 	lastRunDate time.Time
 	minRecords  int // minimum new records threshold before running
 	mu          sync.Mutex
+	wg          sync.WaitGroup
 	stopCh      chan struct{}
 	language    string // AI response language
 
@@ -137,19 +138,23 @@ func (m *ModelingEngine) Start() {
 	m.running = true
 	m.stopCh = make(chan struct{})
 
+	m.wg.Add(1)
 	go m.scheduleLoop()
 }
 
 // Stop halts the modeling scheduler and closes owned DB connections.
 func (m *ModelingEngine) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.running {
+		m.mu.Unlock()
 		return
 	}
 	close(m.stopCh)
 	m.running = false
+	m.mu.Unlock()
+
+	// Wait for goroutine to finish before closing DBs.
+	m.wg.Wait()
 	m.closeOwnDBs()
 }
 
@@ -181,6 +186,7 @@ func (m *ModelingEngine) ShouldRun() bool {
 }
 
 func (m *ModelingEngine) scheduleLoop() {
+	defer m.wg.Done()
 	// Check once per hour whether modeling should run.
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -770,7 +776,7 @@ func calculateDepthScore(totalTimeSecs, visitCount, revisitDays int, lastSeen ti
 	score := timeFactor*0.4 + revisitFactor*0.3 + avgTimeFactor*0.3
 
 	// Recency decay: topics not seen in 30+ days start losing depth score.
-	daysSince := math.Max(0, -time.Since(lastSeen).Hours()/24.0)
+	daysSince := time.Since(lastSeen).Hours() / 24.0
 	if daysSince > 30 {
 		recencyFactor := math.Min(1.0, 30.0/daysSince)
 		score *= recencyFactor
@@ -1693,32 +1699,79 @@ func (m *ModelingEngine) upsertTraits(layerDB *sql.DB, tableName string, traits 
 		return fmt.Errorf("layer database not available")
 	}
 
+	now := db.FormatGRDBDate(time.Now())
+
 	for _, trait := range traits {
-		var descPtr *string
-		if trait.Description != "" {
-			descPtr = &trait.Description
+		var err error
+
+		switch tableName {
+		case "knowledge_traits", "expression_traits":
+			// L2, L4: schema has (id, dimension, value, confidence, lastUpdated, version)
+			_, err = layerDB.Exec(fmt.Sprintf(`
+				INSERT INTO %s (id, dimension, value, confidence, lastUpdated, version)
+				VALUES (?, ?, ?, ?, ?, 1)
+				ON CONFLICT(dimension) DO UPDATE SET
+					value = excluded.value,
+					confidence = excluded.confidence,
+					lastUpdated = excluded.lastUpdated,
+					version = version + 1
+			`, tableName),
+				uuid.New().String(),
+				trait.Dimension,
+				trait.Value,
+				trait.Confidence,
+				now,
+			)
+
+		case "rhythm_traits":
+			// L1: schema has (id, dimension, value, confidence, evidenceCount, firstObserved, lastUpdated, version) — no description
+			_, err = layerDB.Exec(fmt.Sprintf(`
+				INSERT INTO %s (id, dimension, value, confidence, evidenceCount, firstObserved, lastUpdated, version)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+				ON CONFLICT(dimension) DO UPDATE SET
+					value = excluded.value,
+					confidence = excluded.confidence,
+					evidenceCount = COALESCE(evidenceCount, 0) + 1,
+					lastUpdated = excluded.lastUpdated,
+					version = version + 1
+			`, tableName),
+				uuid.New().String(),
+				trait.Dimension,
+				trait.Value,
+				trait.Confidence,
+				1,
+				now,
+				now,
+			)
+
+		default:
+			// L3, L5: full schema with description, evidenceCount, firstObserved
+			var descPtr *string
+			if trait.Description != "" {
+				descPtr = &trait.Description
+			}
+			_, err = layerDB.Exec(fmt.Sprintf(`
+				INSERT INTO %s (id, dimension, value, description, confidence, evidenceCount, firstObserved, lastUpdated, version)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+				ON CONFLICT(dimension) DO UPDATE SET
+					value = excluded.value,
+					description = excluded.description,
+					confidence = excluded.confidence,
+					evidenceCount = COALESCE(evidenceCount, 0) + 1,
+					lastUpdated = excluded.lastUpdated,
+					version = version + 1
+			`, tableName),
+				uuid.New().String(),
+				trait.Dimension,
+				trait.Value,
+				descPtr,
+				trait.Confidence,
+				1,
+				now,
+				now,
+			)
 		}
 
-		_, err := layerDB.Exec(fmt.Sprintf(`
-			INSERT INTO %s (id, dimension, value, description, confidence, evidenceCount, firstObserved, lastUpdated, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-			ON CONFLICT(dimension) DO UPDATE SET
-				value = excluded.value,
-				description = excluded.description,
-				confidence = excluded.confidence,
-				evidenceCount = COALESCE(evidenceCount, 0) + 1,
-				lastUpdated = excluded.lastUpdated,
-				version = version + 1
-		`, tableName),
-			uuid.New().String(),
-			trait.Dimension,
-			trait.Value,
-			descPtr,
-			trait.Confidence,
-			1,
-			db.FormatGRDBDate(time.Now()),
-			db.FormatGRDBDate(time.Now()),
-		)
 		if err != nil {
 			log.Printf("[ModelingEngine] Failed to upsert trait %s: %v", trait.Dimension, err)
 		}
@@ -1728,7 +1781,20 @@ func (m *ModelingEngine) upsertTraits(layerDB *sql.DB, tableName string, traits 
 }
 
 func (m *ModelingEngine) fetchTraitsFromDB(layerDB *sql.DB, tableName string) ([]ParsedTrait, error) {
-	query := fmt.Sprintf("SELECT dimension, value, confidence, description FROM %s", tableName)
+	var hasDescription bool
+	switch tableName {
+	case "cognitive_traits", "value_traits":
+		// L3, L5 have a description column
+		hasDescription = true
+	}
+
+	var query string
+	if hasDescription {
+		query = fmt.Sprintf("SELECT dimension, value, confidence, description FROM %s", tableName)
+	} else {
+		query = fmt.Sprintf("SELECT dimension, value, confidence FROM %s", tableName)
+	}
+
 	rows, err := layerDB.Query(query)
 	if err != nil {
 		return nil, err
@@ -1738,12 +1804,18 @@ func (m *ModelingEngine) fetchTraitsFromDB(layerDB *sql.DB, tableName string) ([
 	var traits []ParsedTrait
 	for rows.Next() {
 		var t ParsedTrait
-		var desc sql.NullString
-		if err := rows.Scan(&t.Dimension, &t.Value, &t.Confidence, &desc); err != nil {
-			return nil, err
-		}
-		if desc.Valid {
-			t.Description = desc.String
+		if hasDescription {
+			var desc sql.NullString
+			if err := rows.Scan(&t.Dimension, &t.Value, &t.Confidence, &desc); err != nil {
+				return nil, err
+			}
+			if desc.Valid {
+				t.Description = desc.String
+			}
+		} else {
+			if err := rows.Scan(&t.Dimension, &t.Value, &t.Confidence); err != nil {
+				return nil, err
+			}
 		}
 		traits = append(traits, t)
 	}

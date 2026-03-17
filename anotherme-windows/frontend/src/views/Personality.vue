@@ -84,7 +84,7 @@ onMounted(async () => {
           <p class="text-sm text-gray-300 leading-relaxed mb-4">
             {{ personalityStore.snapshot.summary }}
           </p>
-          <div class="flex flex-wrap gap-2 mb-3">
+          <div v-if="personalityStore.snapshot.keyTraits?.length" class="flex flex-wrap gap-2 mb-3">
             <span
               v-for="trait in personalityStore.snapshot.keyTraits"
               :key="trait"
@@ -94,7 +94,7 @@ onMounted(async () => {
             </span>
           </div>
           <p class="text-xs text-gray-500">
-            Version {{ personalityStore.snapshot.version }} &middot;
+            <template v-if="personalityStore.snapshot.version">Version {{ personalityStore.snapshot.version }} &middot; </template>
             Generated {{ new Date(personalityStore.snapshot.generatedAt).toLocaleString('en-US') }}
           </p>
         </div>

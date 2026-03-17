@@ -55,6 +55,7 @@ type MemoryConsolidator struct {
 	running   bool
 	stopCh    chan struct{}
 	mu        sync.Mutex
+	wg        sync.WaitGroup
 	language  string // AI response language
 }
 
@@ -103,19 +104,23 @@ func (c *MemoryConsolidator) Start() {
 	c.running = true
 	c.stopCh = make(chan struct{})
 
+	c.wg.Add(1)
 	go c.scheduleLoop()
 }
 
 // Stop halts the consolidation scheduler and closes the DB connection.
 func (c *MemoryConsolidator) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if !c.running {
+		c.mu.Unlock()
 		return
 	}
 	close(c.stopCh)
 	c.running = false
+	c.mu.Unlock()
+
+	// Wait for goroutine to finish before closing DB.
+	c.wg.Wait()
 
 	if c.memoryDB != nil {
 		c.memoryDB.Close()
@@ -128,6 +133,7 @@ func (c *MemoryConsolidator) RunNow() error {
 }
 
 func (c *MemoryConsolidator) scheduleLoop() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(consolidationCheckInterval)
 	defer ticker.Stop()
 

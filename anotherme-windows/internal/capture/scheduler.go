@@ -244,8 +244,9 @@ func (s *Service) triggerCapture() error {
 	callback := s.onCapture
 	s.mu.Unlock()
 
-	// Gate 1: screen state — skip if locked, screensaver, or idle.
-	if s.screenState.IsLocked() || s.screenState.IsScreensaver() || s.screenState.IsIdle() {
+	// Gate 1: screen state — skip if locked or screensaver.
+	// Idle state is handled by smart mode's adaptive interval, not skipped.
+	if s.screenState.IsLocked() || s.screenState.IsScreensaver() {
 		return nil
 	}
 
